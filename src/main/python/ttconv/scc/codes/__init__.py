@@ -73,6 +73,10 @@ class SccCode(Enum):
     """Returns Channel 1 Code Value"""
     return self._channel_1
 
+  def get_ch2_value(self) -> int:
+    """Returns Channel 2 Code Value"""
+    return self._channel_2
+
   def get_channel(self, value: int) -> Optional[SccChannel]:
     """Returns caption channel corresponding to the specified code value"""
     if value == self._channel_1:

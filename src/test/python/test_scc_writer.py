@@ -507,5 +507,177 @@ Line 3
     scc_from_model = scc_writer.from_model(model)
     self.assertEqual(scc_from_model, expected_scc)
 
+  def test_simultaneous_regions(self):
+    # regions displayed simultaneously are encoded as independent caption services,
+    # each keeping its own position
+    SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    ttp:frameRate="30" ttp:frameRateMultiplier="1000 1001">
+  <head>
+    <layout>
+      <region xml:id="r_top" tts:origin="0% 0%" tts:extent="100% 20%"/>
+      <region xml:id="r_bottom" tts:origin="0% 80%" tts:extent="100% 20%"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p region="r_top" begin="30f" end="150f">Top</p>
+      <p region="r_bottom" begin="60f" end="120f">Bottom</p>
+    </div>
+  </body>
+</tt>"""
+
+    # "Top" is loaded on channel 1 at row 1 (91d0), "Bottom" on channel 2 at row 13 (9b70),
+    # and each service is erased with its own EDM
+    expected_scc="""Scenarist_SCC V1.0
+
+00:00:00;22	9420 9420 94ae 94ae 91d0 91d0 54ef 7080 942f 942f
+
+00:00:01;21	1c20 1c20 1cae 1cae 9b70 9b70 c2ef f4f4 ef6d 1c2f 1c2f
+
+00:00:04;00	1c2c 1c2c
+
+00:00:05;00	942c 942c"""
+
+    model = imsc_reader.to_model(et.ElementTree(et.fromstring(SAMPLE)))
+    scc_from_model = scc_writer.from_model(model)
+    self.assertEqual(scc_from_model, expected_scc)
+
+  def test_simultaneous_regions_switching(self):
+    # text that remains valid in one region is neither rewritten nor erased when
+    # the caption of another region switches
+    SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    ttp:frameRate="30" ttp:frameRateMultiplier="1000 1001">
+  <head>
+    <layout>
+      <region xml:id="r_top" tts:origin="0% 0%" tts:extent="100% 20%"/>
+      <region xml:id="r_bottom" tts:origin="0% 80%" tts:extent="100% 20%"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p region="r_top" begin="30f" end="180f">Static</p>
+      <p region="r_bottom" begin="30f" end="90f">First</p>
+      <p region="r_bottom" begin="90f" end="180f">Second</p>
+    </div>
+  </body>
+</tt>"""
+
+    # "Static" is loaded once on channel 1 and remains displayed while channel 2
+    # switches from "First" to "Second"
+    expected_scc="""Scenarist_SCC V1.0
+
+00:00:00;21	9420 9420 94ae 94ae 91d0 91d0 d3f4 61f4 e9e3 942f 942f
+
+00:00:01;02	1c20 1c20 1cae 1cae 9b70 9b70 46e9 f273 f480 1c2f 1c2f
+
+00:00:02;19	1c20 1c20 1cae 1cae 9b70 9b70 d3e5 e3ef 6e64 1c2c 1c2c 1c2f 1c2f
+
+00:00:06;00	942c 942c
+
+00:00:06;02	1c2c 1c2c"""
+
+    model = imsc_reader.to_model(et.ElementTree(et.fromstring(SAMPLE)))
+    scc_from_model = scc_writer.from_model(model)
+    self.assertEqual(scc_from_model, expected_scc)
+
+  def test_pop_on_round_trip_position(self):
+    # the row and column of a pop-on caption read from SCC are preserved on export
+    scc_in = """Scenarist_SCC V1.0
+
+00:00:01;00	9420 9420 94ae 94ae 9352 9352 c8e5 ecec ef80 942f 942f
+
+00:00:03;00	942c 942c"""
+
+    # PAC 9352 addresses row 12 with indent 4 and is preserved as 1352
+    expected_scc = """Scenarist_SCC V1.0
+
+00:00:01;00	9420 9420 94ae 94ae 1352 1352 c8e5 ecec ef80 942f 942f
+
+00:00:03;00	942c 942c"""
+
+    model = scc_reader.to_model(scc_in)
+    scc_from_model = scc_writer.from_model(model)
+    self.assertEqual(scc_from_model, expected_scc)
+
+  def test_rollup_round_trip(self):
+    # the roll-up style of captions read from SCC is preserved on export
+    scc_in = """Scenarist_SCC V1.0
+
+00:00:01;00	94a7 94a7 94ad 94ad 9470 9470 c8e5 ecec ef80
+
+00:00:02;00	94a7 94a7 94ad 94ad 9470 9470 c8e5 ecec ef80 3280
+
+00:00:04;00	942c 942c"""
+
+    expected_scc = """Scenarist_SCC V1.0
+
+00:00:01;00	94a7 94a7 94ad 94ad 9470 9470 c8e5 ecec ef80
+
+00:00:02;02	3280
+
+00:00:04;00	942c 942c"""
+
+    model = scc_reader.to_model(scc_in)
+    scc_from_model = scc_writer.from_model(model)
+    self.assertEqual(scc_from_model, expected_scc)
+
+  def test_positioned_row_out_of_range(self):
+    # a region positioned outside the CEA-608 row range cannot be represented in SCC
+    SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    ttp:frameRate="30" ttp:frameRateMultiplier="1000 1001">
+  <head>
+    <layout>
+      <region xml:id="r_top" tts:origin="0% 0%" tts:extent="100% 20%"/>
+      <region xml:id="r_oob" tts:origin="0% 120%" tts:extent="100% 20%"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p region="r_top" begin="30f" end="150f">Top</p>
+      <p region="r_oob" begin="30f" end="150f">Offscreen</p>
+    </div>
+  </body>
+</tt>"""
+
+    model = imsc_reader.to_model(et.ElementTree(et.fromstring(SAMPLE)))
+    with self.assertRaises(RuntimeError):
+      scc_writer.from_model(model)
+
+  def test_too_many_simultaneous_services(self):
+    # SCC cannot represent more than two simultaneous caption services
+    SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    ttp:frameRate="30" ttp:frameRateMultiplier="1000 1001">
+  <head>
+    <layout>
+      <region xml:id="r1" tts:origin="0% 0%" tts:extent="100% 20%"/>
+      <region xml:id="r2" tts:origin="0% 40%" tts:extent="100% 20%"/>
+      <region xml:id="r3" tts:origin="0% 80%" tts:extent="100% 20%"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p region="r1" begin="30f" end="150f">One</p>
+      <p region="r2" begin="30f" end="150f">Two</p>
+      <p region="r3" begin="30f" end="150f">Three</p>
+    </div>
+  </body>
+</tt>"""
+
+    model = imsc_reader.to_model(et.ElementTree(et.fromstring(SAMPLE)))
+    with self.assertRaises(RuntimeError):
+      scc_writer.from_model(model)
+
 if __name__ == '__main__':
   unittest.main()

@@ -186,6 +186,30 @@ class SccPreambleAddressCode:
 
     return hi * 256 + lo
 
+  def get_packet(self):
+    """Returns the SCC packet corresponding to the PAC channel"""
+    if not 1 <= self.get_row() <= 15:
+      raise ValueError(f"PAC row {self.get_row()} is out of the CEA-608 row range (1-15)")
+
+    hi, lo = _ROW_PAC_MAPPING_CH1[self.get_row() - 1]
+
+    hi = hi + 0x10 # field 1
+
+    if self.get_channel() in (SccChannel.CHANNEL_2, 2):
+      hi = hi + 0x08 # channel 2
+
+    if self.is_italic():
+      lo = lo + 0x0E
+    elif self.get_indent() is not None:
+      lo = lo + 0x10 + self.get_indent() // 2
+    else:
+      lo = lo + _PAC_COLOR_MAPPING.get(self.get_color(), 0)
+
+    if self.is_underline():
+      lo = lo + 1
+
+    return hi * 256 + lo
+
   @staticmethod
   def find(byte_1: int, byte_2: int) -> Optional[SccPreambleAddressCode]:
     """Find the SCC PAC corresponding to the specified bytes"""
