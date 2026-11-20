@@ -41,6 +41,7 @@ from ttconv.isd import ISD
 from ttconv.srt.paragraph import SrtParagraph
 from ttconv.srt.config import SRTWriterConfiguration
 from ttconv.style_properties import StyleProperties, FontStyleType, NamedColors, FontWeightType, TextDecorationType
+from ttconv.utils import merge_contiguous_cues
 
 LOGGER = logging.getLogger(__name__)
 
@@ -181,16 +182,26 @@ class SrtContext:
 
     LOGGER.debug("Check and process the last SRT paragraph.")
 
-    if self._paragraphs and self._paragraphs[-1].get_end() is None:
-      if self._paragraphs[-1].is_only_whitespace():
-        # if the last paragraph contains only whitespace, remove it
-        LOGGER.debug("Removing empty unbounded last paragraph.")
-        self._paragraphs.pop()
+    paragraphs = []
 
-      else:
+    for paragraph in self._paragraphs:
+
+      if paragraph.get_end() is None:
+
+        if paragraph.is_only_whitespace():
+          # if the paragraph contains only whitespace, remove it
+          LOGGER.debug("Removing empty unbounded paragraph.")
+          continue
+
         # set default end time code
         LOGGER.warning("Set a default end value to paragraph (begin + 10s).")
-        self._paragraphs[-1].set_end(self._paragraphs[-1].get_begin().to_seconds() + 10.0)
+        paragraph.set_end(paragraph.get_begin().to_seconds() + 10.0)
+
+      paragraphs.append(paragraph)
+
+    # merge paragraphs that are displayed continuously with the same content
+
+    self._paragraphs = merge_contiguous_cues(paragraphs)
 
   def __str__(self) -> str:
     return "\n".join(p.to_string(id + 1) for id, p in enumerate(self._paragraphs))

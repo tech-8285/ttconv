@@ -25,7 +25,10 @@
 
 import unittest
 from fractions import Fraction
-from ttconv.utils import DisjointIntervals
+from typing import Optional
+
+from ttconv.time_code import ClockTime
+from ttconv.utils import DisjointIntervals, merge_contiguous_cues
 
 class DisjointIntervalsTest(unittest.TestCase):
 
@@ -111,6 +114,90 @@ class DisjointIntervalsTest(unittest.TestCase):
       di.add(Fraction(10), Fraction(5))
     with self.assertRaises(ValueError):
       di.add(Fraction(10), Fraction(10))
+
+
+class _Cue:
+  """Minimal cue implementation for testing merge_contiguous_cues"""
+
+  def __init__(self, begin: Fraction, end: Fraction, content: str):
+    self._begin = ClockTime.from_seconds(begin)
+    self._end = ClockTime.from_seconds(end)
+    self._content = content
+
+  def presentation_key(self):
+    return self._content
+
+  def get_begin(self) -> ClockTime:
+    return self._begin
+
+  def get_end(self) -> Optional[ClockTime]:
+    return self._end
+
+  def set_end(self, offset: Fraction):
+    self._end = ClockTime.from_seconds(offset)
+
+
+def _intervals(cues):
+  return [(cue.get_begin().to_seconds(), cue.get_end().to_seconds()) for cue in cues]
+
+
+class MergeContiguousCuesTest(unittest.TestCase):
+
+  def test_adjacent_same_content_merged(self):
+    cues = [_Cue(Fraction(0), Fraction(2), "A"), _Cue(Fraction(2), Fraction(4), "A")]
+    self.assertEqual([(Fraction(0), Fraction(4))], _intervals(merge_contiguous_cues(cues)))
+
+  def test_three_adjacent_same_content_merged(self):
+    cues = [
+      _Cue(Fraction(0), Fraction(1), "A"),
+      _Cue(Fraction(1), Fraction(2), "A"),
+      _Cue(Fraction(2), Fraction(3), "A"),
+    ]
+    self.assertEqual([(Fraction(0), Fraction(3))], _intervals(merge_contiguous_cues(cues)))
+
+  def test_different_content_not_merged(self):
+    cues = [_Cue(Fraction(0), Fraction(2), "A"), _Cue(Fraction(2), Fraction(4), "B")]
+    self.assertEqual(
+      [(Fraction(0), Fraction(2)), (Fraction(2), Fraction(4))],
+      _intervals(merge_contiguous_cues(cues))
+    )
+
+  def test_gap_not_merged(self):
+    cues = [_Cue(Fraction(0), Fraction(2), "A"), _Cue(Fraction(3), Fraction(5), "A")]
+    self.assertEqual(
+      [(Fraction(0), Fraction(2)), (Fraction(3), Fraction(5))],
+      _intervals(merge_contiguous_cues(cues))
+    )
+
+  def test_overlap_not_merged(self):
+    cues = [_Cue(Fraction(0), Fraction(5), "A"), _Cue(Fraction(1), Fraction(3), "A")]
+    self.assertEqual(
+      [(Fraction(0), Fraction(5)), (Fraction(1), Fraction(3))],
+      _intervals(merge_contiguous_cues(cues))
+    )
+
+  def test_content_changing_back_not_merged(self):
+    cues = [
+      _Cue(Fraction(0), Fraction(2), "A"),
+      _Cue(Fraction(2), Fraction(4), "B"),
+      _Cue(Fraction(4), Fraction(6), "A"),
+    ]
+    self.assertEqual(
+      [(Fraction(0), Fraction(2)), (Fraction(2), Fraction(4)), (Fraction(4), Fraction(6))],
+      _intervals(merge_contiguous_cues(cues))
+    )
+
+  def test_sub_millisecond_boundary_merged_on_rendered_timestamps(self):
+    # the cues end and begin at values that render as the same timestamp
+    first = _Cue(Fraction(0), Fraction(1), "A")
+    first.set_end(Fraction(3333, 10000))
+    second = _Cue(Fraction(3334, 10000), Fraction(2), "A")
+    self.assertEqual(1, len(merge_contiguous_cues([first, second])))
+
+  def test_empty(self):
+    self.assertEqual([], merge_contiguous_cues([]))
+
+
 
 if __name__ == '__main__':
   unittest.main()

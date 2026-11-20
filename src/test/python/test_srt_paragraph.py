@@ -61,5 +61,19 @@ class SrtParagraphTest(unittest.TestCase):
     self.assertEqual("123\n00:20:34,000 --> 00:39:05,000\nHello world!\n", str(paragraph))
     self.assertEqual("123\n00:20:34,000 --> 00:39:05,000\nHello world!\n", paragraph.to_string())
 
+  def test_presentation_key(self):
+    paragraph = SrtParagraph(123)
+    paragraph.append_text("Hello")
+    key = paragraph.presentation_key()
+
+    # timing is not part of the presentation key
+    paragraph.set_begin(Fraction(1234, 1))
+    paragraph.set_end(Fraction(2345, 1))
+    self.assertEqual(key, paragraph.presentation_key())
+
+    # the text is
+    paragraph.append_text(" world")
+    self.assertNotEqual(key, paragraph.presentation_key())
+
 if __name__ == '__main__':
   unittest.main()

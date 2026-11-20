@@ -68,5 +68,44 @@ class VttCueTest(unittest.TestCase):
     paragraph.append_text("Hello world!")
     self.assertEqual("00:20:34.000 --> 00:39:05.000\nHello world!\n", str(paragraph))
 
+  def test_presentation_key(self):
+    base = VttCue(1)
+    base.append_text("Hello")
+    key = base.presentation_key()
+
+    # the cue identifier is not part of the presentation key
+    base.set_identifier(2)
+    self.assertEqual(key, base.presentation_key())
+
+    # neither are the timing properties
+    base.set_begin(Fraction(1234, 1))
+    base.set_end(Fraction(2345, 1))
+    self.assertEqual(key, base.presentation_key())
+
+    # the text and each cue setting are
+    other = VttCue(1)
+    other.append_text("Hello world")
+    self.assertNotEqual(key, other.presentation_key())
+
+    other = VttCue(1)
+    other.append_text("Hello")
+    other.set_line(10)
+    self.assertNotEqual(key, other.presentation_key())
+
+    other = VttCue(1)
+    other.append_text("Hello")
+    other.set_align(VttCue.LineAlignment.center)
+    self.assertNotEqual(key, other.presentation_key())
+
+    other = VttCue(1)
+    other.append_text("Hello")
+    other.set_textalign(VttCue.TextAlignment.center)
+    self.assertNotEqual(key, other.presentation_key())
+
+    other = VttCue(1)
+    other.append_text("Hello")
+    other.set_writing_direction(VttCue.WritingDirection.vertical_growing_left)
+    self.assertNotEqual(key, other.presentation_key())
+
 if __name__ == '__main__':
   unittest.main()

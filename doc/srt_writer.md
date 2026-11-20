@@ -29,3 +29,9 @@ Once filtered, ISD elements are passed to the `SrtContext` to be converted into 
 `ttconv/srt/paragraph.py`, including SRT supported styling (see `ttconv/srt/style.py`). The output document generation
 is completed after the call of the `SrtContext::finish()` method, which sets the last element assets. The resulting
 SRT document is gettable calling the overridden built-in `SrtContext::__str__()` function.
+
+Since each ISD is generated at every temporal offset where the source document changes, the same rendered content is
+commonly present in consecutive ISDs. `SrtContext::finish()` therefore merges paragraphs that are contiguous in time
+(one ends exactly when the next one begins) and present the same text, so a continuously displayed subtitle results in
+a single cue spanning its full display interval. Paragraphs whose text or styling differs, and paragraphs separated by
+a gap, keep their own cues.

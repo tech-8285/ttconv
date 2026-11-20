@@ -28,7 +28,7 @@
 from enum import Enum
 import re
 from fractions import Fraction
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from ttconv.time_code import ClockTime
 
@@ -114,6 +114,22 @@ class VttCue:
   def get_writing_direction(self) -> WritingDirection:
     """Return the WebVTT writing direction cue setting"""
     return self._writing_direction
+
+  def presentation_key(self) -> Tuple[str, Optional[int], Optional[LineAlignment], Optional[TextAlignment], WritingDirection]:
+    """Returns a value that changes only when the cue presents different content, i.e. when
+    the cue text or any of its cue settings differ. The cue identifier is not part of the
+    presentation key since it has no visible effect and is reassigned after merging."""
+    return (
+      self._text,
+      self._line,
+      self._linealign,
+      self._textalign,
+      self._writing_direction
+    )
+
+  def set_identifier(self, identifier: Optional[int]):
+    """Reassigns the cue identifier"""
+    self._id = identifier
 
   def is_only_whitespace_or_empty(self):
     """Returns whether the paragraph text contains only whitespace or is empty"""

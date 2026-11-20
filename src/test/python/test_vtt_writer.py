@@ -638,5 +638,134 @@ STYLE
 <u>A</u>B<u>C</u>
 """)
 
+  def _write_vtt(self, ttml_doc_str: str, config=None) -> str:
+    return vtt_writer.from_model(imsc_reader.to_model(et.ElementTree(et.fromstring(ttml_doc_str))), config)
+
+  def test_continuously_displayed_paragraph_merged(self):
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+<body><div>
+<p begin="0s" end="2s">Lorem</p>
+<p begin="2s" end="4s">Lorem</p>
+</div></body></tt>""")
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:00.000 --> 00:00:04.000
+Lorem
+""", vtt_from_model)
+
+  def test_cue_ids_renumbered_after_merging(self):
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+<body><div>
+<p begin="0s" end="2s">Lorem</p>
+<p begin="2s" end="4s">Lorem</p>
+<p begin="4s" end="6s">Ipsum</p>
+</div></body></tt>""")
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:00.000 --> 00:00:04.000
+Lorem
+
+2
+00:00:04.000 --> 00:00:06.000
+Ipsum
+""", vtt_from_model)
+
+  def test_simultaneous_regions_with_line_position_not_merged(self):
+    # two regions displayed at the same time are separate cues with their own
+    # cue settings, so each must span its own full display interval
+    config = VTTWriterConfiguration()
+    config.line_position = True
+
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:frameRate="24"
+    ttp:profile="http://www.w3.org/ns/ttml/profile/imsc1/text">
+<head><layout>
+<region xml:id="top" tts:origin="10% 10%" tts:extent="80% 30%" tts:displayAlign="before"/>
+<region xml:id="bot" tts:origin="10% 60%" tts:extent="80% 30%" tts:displayAlign="after"/>
+</layout></head>
+<body><div>
+<p region="top" begin="0s" end="2s">TOP</p>
+<p region="top" begin="2s" end="6s">TOP</p>
+<p region="bot" begin="0s" end="4s">BOTTOM</p>
+</div></body></tt>""", config)
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:00.000 --> 00:00:06.000 line:10%,start
+TOP
+
+2
+00:00:00.000 --> 00:00:04.000 line:90%,end
+BOTTOM
+""", vtt_from_model)
+
+  def test_unbounded_paragraphs_per_region_merged_and_given_default_end(self):
+    config = VTTWriterConfiguration()
+    config.line_position = True
+
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:frameRate="24"
+    ttp:profile="http://www.w3.org/ns/ttml/profile/imsc1/text">
+<head><layout>
+<region xml:id="top" tts:origin="10% 10%" tts:extent="80% 30%" tts:displayAlign="before"/>
+<region xml:id="bot" tts:origin="10% 60%" tts:extent="80% 30%" tts:displayAlign="after"/>
+</layout></head>
+<body><div>
+<p region="top" begin="1s">TOP</p>
+<p region="bot" begin="2s">BOT</p>
+</div></body></tt>""", config)
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:01.000 --> 00:00:12.000 line:10%,start
+TOP
+
+2
+00:00:02.000 --> 00:00:12.000 line:90%,end
+BOT
+""", vtt_from_model)
+
+  def test_style_change_not_merged(self):
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+<body><div>
+<p begin="0s" end="2s">Lorem</p>
+<p begin="2s" end="4s"><span tts:fontStyle="italic">Lorem</span></p>
+</div></body></tt>""")
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+Lorem
+
+2
+00:00:02.000 --> 00:00:04.000
+<i>Lorem</i>
+""", vtt_from_model)
+
+  def test_gap_and_cue_settings_keep_cues_separate(self):
+    vtt_from_model = self._write_vtt("""<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+<body><div>
+<p begin="0s" end="2s">Lorem</p>
+<p begin="3s" end="5s">Lorem</p>
+</div></body></tt>""")
+
+    self.assertEqual("""WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+Lorem
+
+2
+00:00:03.000 --> 00:00:05.000
+Lorem
+""", vtt_from_model)
+
 if __name__ == '__main__':
   unittest.main()

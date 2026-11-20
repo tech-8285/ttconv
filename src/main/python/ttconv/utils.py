@@ -200,3 +200,56 @@ class DisjointIntervals:
 
   def __iter__(self):
     return iter(self._intervals)
+
+
+def merge_contiguous_cues(cues: typing.Sequence) -> typing.List:
+  """Merges cues that are contiguous in time and present the same content.
+
+  A cue is merged into an earlier one when they are separated by no gap (the
+  earlier cue ends exactly when the later one starts) and they have the same
+  presentation key. Cues with different keys, and cues separated by a gap or
+  an overlap, are left untouched.
+
+  The `cues` must be sorted by increasing begin time, with end times set. Each
+  cue must provide:
+
+  * `presentation_key()`: a hashable value capturing everything the cue
+    presents (text, style markup and cue settings)
+  * `get_begin()` and `get_end()`: `ClockTime` instances
+  * `set_end(offset)`: sets the end from a value in seconds
+
+  Returns the surviving cues, in increasing begin order.
+  """
+
+  # cues that may still be extended, by presentation key
+
+  pending: typing.Dict[typing.Any, typing.List] = {}
+
+  merged_cues: typing.List = []
+
+  for cue in cues:
+
+    cue_begin = cue.get_begin().to_seconds()
+    cue_end = cue.get_end().to_seconds()
+
+    open_cues = pending.setdefault(cue.presentation_key(), [])
+
+    # a cue that ended before this one starts can no longer be extended
+
+    open_cues[:] = [open_cue for open_cue in open_cues if open_cue.get_end().to_seconds() >= cue_begin]
+
+    # extend the cue that ends exactly when this one starts, if any
+
+    for open_cue in open_cues:
+
+      if open_cue.get_end().to_seconds() == cue_begin:
+        open_cue.set_end(cue_end)
+        break
+
+    else:
+      # no cue to extend, so this cue is emitted as is
+
+      merged_cues.append(cue)
+      open_cues.append(cue)
+
+  return merged_cues

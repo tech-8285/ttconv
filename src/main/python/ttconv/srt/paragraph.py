@@ -27,7 +27,7 @@
 
 import re
 from fractions import Fraction
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from ttconv.time_code import ClockTime
 
@@ -63,6 +63,11 @@ class SrtParagraph:
   def get_end(self) -> Optional[ClockTime]:
     """Returns the paragraph end time code"""
     return self._end
+
+  def presentation_key(self) -> Tuple[str]:
+    """Returns a value that changes only when the paragraph presents different content.
+    Only the text is output by the SRT writer, so the key is the text itself."""
+    return (self._text,)
 
   def is_only_whitespace(self):
     """Returns whether the paragraph tex contains only whitespace or is empty"""

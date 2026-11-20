@@ -39,6 +39,7 @@ from ttconv.filters.isd.merge_paragraphs import ParagraphsMergingISDFilter
 from ttconv.filters.isd.merge_regions import RegionsMergingISDFilter
 from ttconv.filters.isd.supported_style_properties import SupportedStylePropertiesISDFilter
 from ttconv.isd import ISD
+from ttconv.utils import merge_contiguous_cues
 from ttconv.vtt.cue import VttCue
 from ttconv.vtt.css_class import CssClass
 from ttconv.style_properties import DirectionType, ExtentType, PositionType, StyleProperties, FontStyleType, NamedColors, \
@@ -334,16 +335,32 @@ class VttContext:
 
     LOGGER.debug("Check and process the last VTT paragraph.")
 
-    if self._paragraphs and self._paragraphs[-1].get_end() is None:
-      if self._paragraphs[-1].is_only_whitespace_or_empty():
-        # if the last paragraph contains only whitespace, remove it
-        LOGGER.debug("Removing empty unbounded last paragraph.")
-        self._paragraphs.pop()
+    paragraphs = []
 
-      else:
+    for paragraph in self._paragraphs:
+
+      if paragraph.get_end() is None:
+
+        if paragraph.is_only_whitespace_or_empty():
+          # if the paragraph contains only whitespace, remove it
+          LOGGER.debug("Removing empty unbounded paragraph.")
+          continue
+
         # set default end time code
         LOGGER.warning("Set a default end value to paragraph (begin + 10s).")
-        self._paragraphs[-1].set_end(self._paragraphs[-1].get_begin().to_seconds() + 10.0)
+        paragraph.set_end(paragraph.get_begin().to_seconds() + 10.0)
+
+      paragraphs.append(paragraph)
+
+    # merge paragraphs that are displayed continuously with the same content
+
+    self._paragraphs = merge_contiguous_cues(paragraphs)
+
+    # renumber cue identifiers now that some cues have been merged
+
+    if self._config.cue_id:
+      for index, paragraph in enumerate(self._paragraphs):
+        paragraph.set_identifier(index + 1)
 
   def style_block(self):
     """Generated CSS INLINE STYLE Block"""
