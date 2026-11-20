@@ -517,5 +517,459 @@ Line \u0000
     self.assertIsNotNone(m)
     self.assertEqual(len(m.get_body()), 0)
 
+  @staticmethod
+  def _iter_span_styles(doc, style_prop):
+    """Returns the values of `style_prop` found on the spans of the document"""
+    return [
+      e.get_style(style_prop)
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Span)
+    ]
+
+  def test_style_block_global(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue {
+  color: lime;
+}
+
+00:00:00.000 --> 00:00:25.000
+Red or green?
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    texts = [
+      e
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(1, len(texts))
+    self.assertEqual("Red or green?", texts[0].get_text())
+    self.assertEqual(
+      styles.NamedColors.lime.value,
+      texts[0].parent().get_style(styles.StyleProperties.Color)
+    )
+
+  def test_style_block_does_not_change_text_or_timing(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { color: lime; }
+::cue(b) { font-weight: normal; }
+
+00:00:01.000 --> 00:00:02.500
+Hello <b>my</b> name<00:01.500>is Bob
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    p = doc.get_body().first_child().first_child()
+
+    self.assertEqual(1, p.get_begin())
+    self.assertEqual(Fraction(5, 2), p.get_end())
+
+    texts = [
+      e.get_text()
+      for e in p.dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(["Hello ", "my", " name", "is Bob"], texts)
+
+  def test_style_block_class_selector(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(.loud) { font-size: 2em; }
+
+00:00:00.000 --> 00:00:05.000
+<c>quiet</c> <c.loud>loud</c>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    loud_spans = [
+      e
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Span) and e.get_style(styles.StyleProperties.FontSize) is not None
+    ]
+
+    # the `<c.loud>` span and the anonymous span that contains its text
+    self.assertEqual(2, len(loud_spans))
+    for span in loud_spans:
+      self.assertEqual(
+        styles.LengthType(2, styles.LengthType.Units.em),
+        span.get_style(styles.StyleProperties.FontSize)
+      )
+
+    # the `<c>` span is not affected
+    quiet_text = next(
+      e for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text) and e.get_text() == "quiet"
+    )
+
+    self.assertIsNone(quiet_text.parent().get_style(styles.StyleProperties.FontSize))
+
+  def test_style_block_voice_selector(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(v[voice="Mary"]) { color: cyan; }
+::cue(v[voice="Esme"]) { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+<v Mary>Mary</v>
+<v Esme>Esme</v>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    colors = self._iter_span_styles(doc, styles.StyleProperties.Color)
+
+    self.assertIn(styles.NamedColors.cyan.value, colors)
+    self.assertIn(styles.NamedColors.lime.value, colors)
+
+  def test_style_block_precedence(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { color: lime; }
+::cue(b) { color: red; }
+::cue(b.loud) { color: yellow; }
+
+00:00:00.000 --> 00:00:05.000
+<c>c</c> <b>b</b> <b.loud>loud</b>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    color_by_text = {}
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Text):
+        color_by_text[e.get_text()] = e.parent().get_style(styles.StyleProperties.Color)
+
+    self.assertEqual(styles.NamedColors.lime.value, color_by_text["c"])
+    self.assertEqual(styles.NamedColors.red.value, color_by_text["b"])
+    self.assertEqual(styles.NamedColors.yellow.value, color_by_text["loud"])
+
+  def test_style_block_important(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(b) { color: red !important; }
+::cue { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+<c>c</c> <b>b</b>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    color_by_text = {}
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Text):
+        color_by_text[e.get_text()] = e.parent().get_style(styles.StyleProperties.Color)
+
+    self.assertEqual(styles.NamedColors.lime.value, color_by_text["c"])
+    self.assertEqual(styles.NamedColors.red.value, color_by_text["b"])
+
+  def test_style_block_does_not_override_presentational_hint(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+<c.yellow>yellow</c>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    text = next(
+      e for e in doc.get_body().dfs_iterator() if isinstance(e, model.Text)
+    )
+
+    self.assertEqual(
+      styles.NamedColors.yellow.value,
+      text.parent().get_style(styles.StyleProperties.Color)
+    )
+
+  def test_multiple_style_blocks(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { opacity: 0.5; }
+::cue { color: lime; }
+
+STYLE
+::cue { background-color: red; }
+
+00:00:00.000 --> 00:00:05.000
+Hello
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    p = doc.get_body().first_child().first_child()
+
+    self.assertEqual(0.5, p.get_style(styles.StyleProperties.Opacity))
+
+    span = p.first_child()
+
+    self.assertEqual(styles.NamedColors.lime.value, span.get_style(styles.StyleProperties.Color))
+    self.assertEqual(styles.NamedColors.red.value, span.get_style(styles.StyleProperties.BackgroundColor))
+
+  def test_style_block_after_cue_is_ignored(self):
+    SAMPLE = """WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+first
+
+STYLE
+::cue { color: lime; }
+
+00:00:05.000 --> 00:00:10.000
+second
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Span):
+        self.assertIsNone(e.get_style(styles.StyleProperties.Color))
+
+  def test_style_block_with_cue_timing_is_ignored(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+first
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    text = next(
+      e for e in doc.get_body().dfs_iterator() if isinstance(e, model.Text)
+    )
+
+    self.assertEqual(
+      styles.NamedColors.lime.value,
+      text.parent().get_style(styles.StyleProperties.Color)
+    )
+
+  def test_unsupported_style_rule_does_not_drop_cues(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+@import "style.css";
+::cue(#foo) { color: red; }
+::cue { width: 20px; }
+
+00:00:00.000 --> 00:00:05.000
+first
+
+00:00:05.000 --> 00:00:10.000
+second
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    texts = [
+      e.get_text()
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(["first", "second"], texts)
+
+  def test_style_block_selector_scope(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(b) { color: red; }
+::cue(c) { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+<c>b</c> <b>c</b>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    color_by_text = {}
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Text):
+        color_by_text[e.get_text()] = e.parent().get_style(styles.StyleProperties.Color)
+
+    self.assertEqual(styles.NamedColors.lime.value, color_by_text["b"])
+    self.assertEqual(styles.NamedColors.red.value, color_by_text["c"])
+
+  def test_style_block_custom_class(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(.myclass) { font-style: italic; }
+
+00:00:00.000 --> 00:00:05.000
+<c.myclass>italic</c>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    text = next(
+      e for e in doc.get_body().dfs_iterator() if isinstance(e, model.Text)
+    )
+
+    self.assertEqual(
+      styles.FontStyleType.italic,
+      text.parent().get_style(styles.StyleProperties.FontStyle)
+    )
+
+  def test_style_block_background_applies_to_cue(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { background-color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+Hello
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    p = doc.get_body().first_child().first_child()
+
+    for span in p:
+      self.assertEqual(
+        styles.NamedColors.lime.value,
+        span.get_style(styles.StyleProperties.BackgroundColor)
+      )
+
+  def test_style_block_inherits_into_nested_elements(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(b) { color: red; }
+
+00:00:00.000 --> 00:00:05.000
+<b>outer <i>inner</i></b>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    color_by_text = {}
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Text):
+        color_by_text[e.get_text()] = e.parent().get_style(styles.StyleProperties.Color)
+
+    self.assertEqual(styles.NamedColors.red.value, color_by_text["outer "])
+    self.assertEqual(styles.NamedColors.red.value, color_by_text["inner"])
+
+  def test_style_followed_by_cue_timing(self):
+    # per the WebVTT parser, a cue timing ends the style block, and starts a cue
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue { color: lime; }
+00:00:00.000 --> 00:00:01.000
+first
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    texts = [
+      e.get_text()
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(["first"], texts)
+
+    text = next(
+      e for e in doc.get_body().dfs_iterator() if isinstance(e, model.Text)
+    )
+
+    self.assertEqual(
+      styles.NamedColors.lime.value,
+      text.parent().get_style(styles.StyleProperties.Color)
+    )
+
+  def test_style_as_cue_identifier(self):
+    # per the WebVTT parser, a cue timing directly after the STYLE header makes
+    # of it the cue identifier rather than a style block
+    SAMPLE = """WEBVTT
+
+STYLE
+00:00:00.000 --> 00:00:01.000
+first
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    texts = [
+      e.get_text()
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(["first"], texts)
+
+  def test_style_blocks_apply_to_preceding_cues(self):
+    SAMPLE = """WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+first
+
+STYLE
+::cue(b) { color: red; }
+
+00:00:05.000 --> 00:00:10.000
+<b>second</b>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    # STYLE blocks cannot appear after the first cue, so neither cue is styled
+    spans = [
+      e
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Span)
+    ]
+
+    self.assertTrue(len(spans) > 0)
+
+    for span in spans:
+      self.assertIsNone(span.get_style(styles.StyleProperties.Color))
+
+  def test_style_block_scope_is_per_cue(self):
+    SAMPLE = """WEBVTT
+
+STYLE
+::cue(.a) { color: lime; }
+
+00:00:00.000 --> 00:00:05.000
+<c.a>one</c>
+
+00:00:05.000 --> 00:00:10.000
+<c.b>two</c>
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    color_by_text = {}
+
+    for e in doc.get_body().dfs_iterator():
+      if isinstance(e, model.Text):
+        color_by_text[e.get_text()] = e.parent().get_style(styles.StyleProperties.Color)
+
+    self.assertEqual(styles.NamedColors.lime.value, color_by_text["one"])
+    self.assertIsNone(color_by_text["two"])
+
+  def test_note_followed_by_cue_timing(self):
+    SAMPLE = """WEBVTT
+
+NOTE a comment whose block is ended by the cue timing
+00:00:00.000 --> 00:00:01.000
+first
+"""
+    doc = to_model(io.StringIO(SAMPLE))
+
+    texts = [
+      e.get_text()
+      for e in doc.get_body().dfs_iterator()
+      if isinstance(e, model.Text)
+    ]
+
+    self.assertEqual(["first"], texts)
+
 if __name__ == '__main__':
   unittest.main()
